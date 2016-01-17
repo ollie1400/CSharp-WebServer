@@ -1,0 +1,8 @@
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\bin\Debug\WebServer.exe.config
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\bin\Debug\WebServer.exe
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\bin\Debug\WebServer.pdb
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\obj\Debug\WebServer.csprojResolveAssemblyReference.cache
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\obj\Debug\WebServer.Properties.Resources.resources
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\obj\Debug\WebServer.csproj.GenerateResource.Cache
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\obj\Debug\WebServer.exe
+C:\Users\otlg1\Documents\Projects\WebServer\WebServer\obj\Debug\WebServer.pdb
