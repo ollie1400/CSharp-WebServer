@@ -83,7 +83,7 @@ namespace WebServer
                 }
                 else if (StrComp(fieldName, "Connection"))
                 {
-                    ret.Headers.Connection = value;
+                    ret.Headers.Connection = ConnectionParser.Parse(value);
                 }
                 else if (StrComp(fieldName, "Content-Length"))
                 {
@@ -129,9 +129,9 @@ namespace WebServer
             public string Host { get; set; }
             public string IfMatch { get; set; }
             public string UserAgent { get; set; }
-            public string Connection { get; set; }
             public int? ContentLength { get; set; }
             public CacheControlStruct CacheControl { get; set; }
+            public ConnectionStruct Connection { get; set; }
 
         }
 
@@ -199,5 +199,38 @@ namespace WebServer
         public int? MinFresh { get; set; }
         public bool? NoTransform { get; set; }
         public bool? OnlyIfCached { get; set; }
+    }
+
+    public abstract class ConnectionParser
+    {
+        public static ConnectionStruct Parse (string line)
+        {
+            ConnectionStruct ret = new ConnectionStruct();
+
+            // split by comma
+            string[] parts = line.Split(',').Select(s => s.Trim()).ToArray();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                // split by equals if there is
+                string[] bits = parts[i].Split('=');
+                if (StrComp(bits[0], "keep-alive"))
+                {
+                    ret.KeepAlive = true;
+                }
+            }
+
+            return ret;
+        }
+
+        private static bool StrComp(string one, string two)
+        {
+            return one.Equals(two, StringComparison.InvariantCultureIgnoreCase);
+        }
+    }
+
+
+    public struct ConnectionStruct
+    {
+        public bool? KeepAlive { get; set; }
     }
 }

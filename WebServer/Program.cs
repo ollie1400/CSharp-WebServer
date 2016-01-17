@@ -27,6 +27,8 @@ namespace WebServer
             //Application.SetCompatibleTextRenderingDefault(false);
             //Application.Run(new Form1());
 
+            // how many threads in pool?
+            ThreadPool.SetMinThreads(3, 3);
 
             // set up port
             tcpListener = new TcpListener(IPAddress.Loopback, port);
@@ -52,24 +54,57 @@ namespace WebServer
 
             byte[] buffer = new byte[1024];
             //inputStream.Read(buffer, 0, buffer.Length);
-            socket.Receive(buffer);
 
-            string request = System.Text.Encoding.UTF8.GetString(buffer);
-            HTTPHeader header = HTTPHeaderParser.Parse(request);
+            // keep reading whilst kept alive
+            bool keepAlive = false;
+            do
+            {
+                socket.Receive(buffer);
 
-            // form response
-            string responseBody = "<!DOCTYPE html><html><body>Hello Chrome!! The time is " + DateTime.Now.ToShortTimeString() + "</body></html>";
+                string request = System.Text.Encoding.UTF8.GetString(buffer);
+                HTTPHeader header = HTTPHeaderParser.Parse(request);
 
-            string responseString = "HTTP/1.1 200 OK\r\n";
-            responseString += "Connection: close\r\n";
-            responseString += "Content-Type: text/html\r\n";
-            responseString += "Content-Length: " + responseBody.Length.ToString() + "\r\n";
-            responseString += "Date: " + DateTime.Today.ToString("R") + "\r\n";
-            responseString += "\r\n";
-            responseString += responseBody;
+                // asked for what?
+                if (header.RequestURI == "/")
+                {
+                    // form response
+                    string responseBody = @"<!DOCTYPE html>
+                <html><body>Hello Chrome!! The time is {0}
+                </br>
+                <img src=""image.jpg"">
+            </body></html>";
+                    responseBody = String.Format(responseBody, DateTime.Now.ToShortTimeString());
 
-            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
-            socket.Send(responseBytes);
+                    string responseString = "HTTP/1.1 200 OK\r\n";
+                    responseString += "Connection: close\r\n";
+                    responseString += "Content-Type: text/html\r\n";
+                    responseString += "Content-Length: " + responseBody.Length.ToString() + "\r\n";
+                    responseString += "Date: " + DateTime.Today.ToString("R") + "\r\n";
+                    responseString += "\r\n";
+                    responseString += responseBody;
+
+                    byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
+                    socket.Send(responseBytes);
+
+                }
+                else if (header.RequestURI == "/favico.ico")
+                {
+
+                }
+                else
+                {
+                    string responseString = "HTTP/1.1 404 Not Found";
+                    responseString += "\r\n\r\n";
+                    responseString += "404 Error: Couldn't find " + header.RequestURI;
+                    byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
+                    socket.Send(responseBytes);
+                }
+
+                // keep alive?
+                // true by default 
+                keepAlive = header.Headers.Connection.KeepAlive ?? true;
+
+            } while (keepAlive);
 
             //outputStream.WriteLine("HTTP/1.1 200 OK");
             //outputStream.WriteLine("Content-Type: text/html");
