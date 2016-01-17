@@ -49,74 +49,88 @@ namespace WebServer
         {
             Socket socket = (Socket)context;
             //TcpClient socket = (TcpClient)context;
-            //Stream inputStream = new BufferedStream(socket.GetStream());
-            //StreamWriter outputStream = new StreamWriter(new BufferedStream(socket.GetStream()));
 
-            byte[] buffer = new byte[1024];
-            //inputStream.Read(buffer, 0, buffer.Length);
-
-            // keep reading whilst kept alive
-            bool keepAlive = false;
-            do
+            try
             {
-                socket.Receive(buffer);
 
-                string request = System.Text.Encoding.UTF8.GetString(buffer);
-                HTTPHeader header = HTTPHeaderParser.Parse(request);
+                //using (Stream inputStream = new BufferedStream(socket.GetStream()))
+                //using (StreamWriter outputStream = new StreamWriter(new BufferedStream(socket.GetStream())))
+                //{
 
-                // asked for what?
-                if (header.RequestURI == "/")
-                {
-                    // form response
-                    string responseBody = @"<!DOCTYPE html>
+                    byte[] buffer = new byte[1024];
+                    //inputStream.Read(buffer, 0, buffer.Length);
+
+                    // keep reading whilst kept alive
+                    bool keepAlive = true;
+                    while (socket.Connected)
+                    {
+                        //inputStream.Read(buffer, 0, buffer.Length);
+                        socket.Receive(buffer);
+
+                        string request = System.Text.Encoding.UTF8.GetString(buffer);
+                        HTTPHeader header = HTTPHeaderParser.Parse(request);
+
+                        // asked for what?
+                        if (header.RequestURI == "/")
+                        {
+                            // form response
+                            string responseBody = @"<!DOCTYPE html>
                 <html><body>Hello Chrome!! The time is {0}
                 </br>
                 <img src=""image.jpg"">
             </body></html>";
-                    responseBody = String.Format(responseBody, DateTime.Now.ToShortTimeString());
+                            responseBody = String.Format(responseBody, DateTime.Now.ToShortTimeString());
 
-                    string responseString = "HTTP/1.1 200 OK\r\n";
-                    responseString += "Connection: close\r\n";
-                    responseString += "Content-Type: text/html\r\n";
-                    responseString += "Content-Length: " + responseBody.Length.ToString() + "\r\n";
-                    responseString += "Date: " + DateTime.Today.ToString("R") + "\r\n";
-                    responseString += "\r\n";
-                    responseString += responseBody;
+                            string responseString = "HTTP/1.1 200 OK\r\n";
+                            responseString += "Content-Type: text/html\r\n";
+                            responseString += "Content-Length: " + responseBody.Length.ToString() + "\r\n";
+                            responseString += "Date: " + DateTime.Now.ToString("R") + "\r\n";
+                            responseString += "\r\n";
+                            responseString += responseBody;
 
-                    byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
-                    socket.Send(responseBytes);
+                            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
+                            socket.Send(responseBytes);
+                            //outputStream.WriteLine(responseString);
+                            //outputStream.Flush();
 
-                }
-                else if (header.RequestURI == "/favico.ico")
-                {
+                        }
+                        else if (header.RequestURI == "/image.jpg")
+                        {
+                            FileInfo finfo = new FileInfo("image.jpg");
+                            FileStream fstream = finfo.OpenRead();
+                            long fsize = finfo.Length;
 
-                }
-                else
-                {
-                    string responseString = "HTTP/1.1 404 Not Found";
-                    responseString += "\r\n\r\n";
-                    responseString += "404 Error: Couldn't find " + header.RequestURI;
-                    byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
-                    socket.Send(responseBytes);
-                }
+                            string responseString = "HTTP/1.1 200 OK\r\n";
+                            responseString += "Content-Type: image/jpeg\r\n";
+                            responseString += "Content-Length: " + fsize + "\r\n";
+                            responseString += "Date: " + DateTime.Now.ToString("R") + "\r\n";
+                            responseString += "\r\n";
 
-                // keep alive?
-                // true by default 
-                keepAlive = header.Headers.Connection.KeepAlive ?? true;
+                            //outputStream.WriteLine(responseString);
+                            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
+                            socket.Send(responseBytes);
+                            socket.SendFile("image.jpg");
+                        }
+                        else
+                        {
+                            string responseString = "HTTP/1.1 404 Not Found";
+                            responseString += "\r\n\r\n";
+                            responseString += "404 Error: Couldn't find " + header.RequestURI;
+                            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
+                            socket.Send(responseBytes);
+                        }
 
-            } while (keepAlive);
+                        // keep alive?
+                        // true by default 
+                        keepAlive = header.Headers.Connection.KeepAlive ?? true;
 
-            //outputStream.WriteLine("HTTP/1.1 200 OK");
-            //outputStream.WriteLine("Content-Type: text/html");
-            //outputStream.WriteLine("Content - Length: " + responseBody.Length.ToString());
-            //outputStream.WriteLine("Date: " + DateTime.Now.ToString("R"));
-            //outputStream.WriteLine("");
-            //outputStream.WriteLine(responseBody);
+                    }
 
-            //outputStream.Flush();
-            //inputStream = null;
-            //outputStream = null;
-            socket.Close();
+                socket.Close();
+
+            }
+            catch (Exception ex)
+            { }
         }
     }
 }
