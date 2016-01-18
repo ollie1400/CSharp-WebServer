@@ -39,7 +39,7 @@ namespace WebServer
                 // what is it? (case-insensitive https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.2)
                 if (fieldName.Equals("Accept", StringComparison.InvariantCultureIgnoreCase))
                 {
-                    ret.Headers.Accept = value.Split(',').Select(s => s.Trim()).ToArray();
+                    ret.Headers.Accept = AcceptHeaderParser.Parse(value);
                 }
                 else if (fieldName.Equals("Accept-Charset", StringComparison.InvariantCultureIgnoreCase))
                 {
@@ -113,18 +113,18 @@ namespace WebServer
         //public Dictionary<string, string> HeaderFields { get; set; }
         public string NewLine { get; set; }
 
-        public RequestHeaders Headers { get; set; }
+        public HttpHeaders Headers { get; set; }
 
         public HttpHeader()
         {
             //HeaderFields = new Dictionary<string, string>();
-            Headers = new RequestHeaders();
+            Headers = new HttpHeaders();
             NewLine = "\r\n";
         }
 
-        public class RequestHeaders
+        public class HttpHeaders
         {
-            public string[] Accept { get; set; }
+            public AcceptHeader Accept { get; set; }
             public string[] AcceptCharset { get; set; }
             public string[] AcceptEncoding { get; set; }
             public string[] AcceptLanguage { get; set; }
@@ -138,8 +138,9 @@ namespace WebServer
             public CacheControlStruct CacheControl { get; set; }
             public ConnectionStruct Connection { get; set; }
             public string ContentType { get; set; }
+            public DateTime? LastModified { get; set; }
 
-            public RequestHeaders()
+            public HttpHeaders()
             {
                 CacheControl = new CacheControlStruct();
                 Connection = new ConnectionStruct();
@@ -149,10 +150,108 @@ namespace WebServer
     }
 
 
+    public abstract class AcceptHeaderParser
+    {
+        public static AcceptHeader Parse(string acceptHeaderString)
+        {
+            AcceptHeader ret = new AcceptHeader();
+            foreach (string part in acceptHeaderString.Split(',').Select(s => s.Trim()).ToArray())
+            {
+                try
+                {
+                    // q value?
+                    string[] parts = part.Split(';');
+                    string[] fileParts = parts[0].Split('/');
+                    string type = fileParts[0];
+                    string extension = fileParts[1];
+                    double? qval = null;
+                    if (parts.Length > 1)
+                    {
+                        qval = double.Parse(parts[1].Substring(parts[1].IndexOf("=")+1).Trim());
+                    }
+
+                    // assign
+                    ret.AddAccept(type, extension, qval);
+                }
+                catch (Exception ex)
+                { }
+            }
+            return ret;
+        }
+    }
+
+    public class AcceptHeader
+    {
+        public AcceptPart[] AcceptParts { get; private set; }
+
+        private List<AcceptPart> acceptParts = new List<AcceptPart>();
+
+        public void AddAccept(string type, string extension, double? weight)
+        {
+            acceptParts.Add(new AcceptPart() { Type = type, Extension = extension, QValue = weight });
+            AcceptParts = acceptParts.ToArray();
+        }
+
+        public void Clear()
+        {
+            acceptParts.Clear();
+            AcceptParts = AcceptParts.ToArray();
+        }
+
+        public override string ToString()
+        {
+            string ret = "";
+            if (acceptParts.Count > 0)
+            {
+                ret += acceptParts[0].ToString();
+                for (int i=1; i< acceptParts.Count; i++)
+                {
+                    ret += "\r\n";
+                    ret += acceptParts[i].ToString();
+                }
+            }
+            return ret;
+        }
+
+        /// <summary>
+        /// Check to see if a file with the given extension and type would be accepted by the sender of this HttpHeader
+        /// </summary>
+        /// <param name="extension">File extension</param>
+        /// <returns>The weight (1 by default).  Anything above 0 is a yes.</returns>
+        public double ExtensionAccepted(string type, string extension)
+        {
+            double ret = 0.0;
+
+            // if the header list contains "*/*" then anything is accepted
+            if (acceptParts.Any(a => a.Extension == "*" && a.Type == "*"))
+            {
+                return 1.0;
+            }
+            AcceptPart[] ap = acceptParts.Where(a => a.Extension.IndexOf(extension, StringComparison.InvariantCultureIgnoreCase) >= 0).OrderByDescending(a => a.QValue ?? 1.0).ToArray();
+            if (ap.Length > 0)
+            {
+                return ap[0].QValue ?? 1.0;
+            }
+
+            return ret;
+        }
+
+        public class AcceptPart
+        {
+            public string Type { get; set; }
+            public string Extension { get; set; }
+            public double? QValue { get; set; }
+            public override string ToString()
+            {
+                return Type + "/" + Extension + (QValue.HasValue ? ";q=" + QValue.Value.ToString("F1") : "");
+            }
+        }
+    }
+
     public class HttpResponse : HttpHeader
     {
         public int ReturnCode { get; set; }
-        public string Response { get; set; }
+        public object Response { get; set; }
 
         /// <summary>
         /// Add an extra NewLine string at the end of the returned response header string (or byte array).  False by default.  ONLY added if Response == null
@@ -200,14 +299,24 @@ namespace WebServer
                 string cacheControlString = Headers.CacheControl.ToString();
                 if (cacheControlString.Length > 0) ret += "Cache-Control: " + cacheControlString + NewLine;
             }
-            ret += "Date: " + DateTime.Now.ToString("R") +NewLine;
+            ret += "Date: " + DateTime.Now.ToString("R") + NewLine;
+            if (Headers.LastModified != null)
+            {
+                ret += "Last-Modified: " + Headers.LastModified.Value.ToString("R") + NewLine;
+            }
 
-            if (!String.IsNullOrEmpty(Response))
+            // what is the response?
+            // if it's a string, add the new line separator and put it in now
+            if (Response is string)
             {
-                ret += NewLine + Response;
-            } else if (AddExtraNewLine)
-            {
-                ret += NewLine;
+                if (!String.IsNullOrEmpty(Response as string))
+                {
+                    ret += NewLine + Response as string;
+                }
+                else if (AddExtraNewLine)
+                {
+                    ret += NewLine;
+                }
             }
 
             return ret;
@@ -216,7 +325,36 @@ namespace WebServer
 
         public byte[] GetResponseBytes()
         {
-            return Encoding.UTF8.GetBytes(ToString());
+            byte[] headerBytes;
+
+            // if given a Response object and it is a byte[] add it on
+            byte[] contentBytes = new byte[0];
+            byte[] totalResponse = null;
+            if (!(Response is string))
+            {
+                if (Response is byte[])
+                {
+                    contentBytes = (byte[])Response;
+                }
+                else
+                {
+                    throw new Exception("Unsupported Response object");
+                }
+
+                // get header with extra character
+                headerBytes = Encoding.UTF8.GetBytes(ToString() + NewLine);
+
+                // combine
+                totalResponse = new byte[headerBytes.Length + contentBytes.Length];
+                Buffer.BlockCopy(headerBytes, 0, totalResponse, 0, headerBytes.Length);
+                Buffer.BlockCopy(contentBytes, 0, totalResponse, headerBytes.Length, contentBytes.Length);
+            }else
+            {
+                headerBytes = Encoding.UTF8.GetBytes(ToString());
+                totalResponse = headerBytes;
+            }
+
+            return totalResponse;
         }
     }
 
@@ -248,8 +386,18 @@ namespace WebServer
         }
     }
 
+
+
+    /// <summary>
+    /// Parse a http value for the Cache-Control parameter into a CacheControlStruct object.
+    /// </summary>
     public abstract class CacheControlParser
     {
+        /// <summary>
+        /// Parse
+        /// </summary>
+        /// <param name="line">The Cache-Control parameter value string</param>
+        /// <returns></returns>
         public static CacheControlStruct Parse (string line)
         {
             CacheControlStruct ret = new CacheControlStruct();
@@ -299,6 +447,9 @@ namespace WebServer
         }
     }
 
+    /// <summary>
+    /// A structure representing a the Cache-Control parameter value of a HTTP request/response
+    /// </summary>
     public class CacheControlStruct
     {
         public bool? NoCache { get; set; }
@@ -348,6 +499,9 @@ namespace WebServer
                 if (StrComp(bits[0], "keep-alive"))
                 {
                     ret.KeepAlive = true;
+                } else if (StrComp(bits[0], "close"))
+                {
+                    ret.Close = true;
                 }
             }
 
@@ -360,7 +514,9 @@ namespace WebServer
         }
     }
 
-
+    /// <summary>
+    /// A structure representing the value of a Connection parameter in an HTTP request/response
+    /// </summary>
     public class ConnectionStruct
     {
         public bool? KeepAlive { get; set; }

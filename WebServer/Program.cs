@@ -17,8 +17,10 @@ namespace WebServer
         static private int port = 1425;
         static private int SocketTimeOut = 0;
         static private TcpListener tcpListener;
-        static private Socket socket;
         static private ManualResetEvent connected = new ManualResetEvent(false);
+
+        static private string siteBase = @"C:\Users\otlg1\Documents\Projects\WebServer\www";
+        static private long MAX_FILE_SIZE = (long)(1024 * 1024 * 1024 * 0.5); // 500Mb
 
         /// <summary>
         /// The main entry point for the application.
@@ -39,11 +41,8 @@ namespace WebServer
             // start listening loop
             while (!quit)
             {
-                //TcpClient socket = tcpListener.AcceptTcpClient();
-                
                 tcpListener.BeginAcceptSocket(ServeRequest, tcpListener);
                 connected.WaitOne();
-                //ThreadPool.QueueUserWorkItem(ServeRequest, socket);
             }
         }
 
@@ -69,7 +68,7 @@ namespace WebServer
                 bool keepAlive = true;
                 while (socket.Connected && keepAlive)
                 {
-                    //inputStream.Read(buffer, 0, buffer.Length);
+                    // TODO: bug? will we always receive the whole HTTP message? (not including chunked)
                     socket.Receive(buffer);
 
                     string request = System.Text.Encoding.UTF8.GetString(buffer);
@@ -108,35 +107,78 @@ namespace WebServer
                         socket.Send(responseBytes);
 
                     }
-                    else if (header.RequestURI == "/image.jpg")
-                    {
-                        FileInfo finfo = new FileInfo("image.jpg");
-                        FileStream fstream = finfo.OpenRead();
-                        long fsize = finfo.Length;
-
-                        // form response
-                        HttpResponse response = new HttpResponse();
-                        response.ReturnCode = 200;
-                        response.Headers.ContentType = "image/jpeg";
-                        response.Headers.ContentLength = fsize;
-                        response.Headers.CacheControl.NoCache = true;
-                        response.Response = null;
-                        response.AddExtraNewLine = true;
-                             
-                        
-                        socket.Send(response.GetResponseBytes());
-                        socket.SendFile("image.jpg");
-                    }
                     else
                     {
-                        HttpResponse response = new HttpResponse();
-                        response.ReturnCode = 404;
-                        response.Headers.ContentType = "text/html";
-                        response.Response = "<p>404 Error: Couldn't find " + header.RequestURI + "</p>";
-                        response.Headers.ContentLength = response.Response.Length;
-                        response.Headers.CacheControl.NoCache = true;
+                        // try to resolve the URI
+                        string uri = header.RequestURI;
+                        uri = uri.Replace("/", @"\");
+                        string fullPath = siteBase + uri;
 
-                        socket.Send(response.GetResponseBytes());
+                        // reponse
+                        HttpResponse response = new HttpResponse();
+
+                        // is it a file or folder?
+                        if (File.Exists(fullPath))
+                        {
+                            // it's a file!
+                            FileInfo finfo = new FileInfo(fullPath);
+                            FileStream fstream = finfo.OpenRead();
+                            long fsize = finfo.Length;
+
+                            // is file size ok?
+                            if (fsize <= MAX_FILE_SIZE)
+                            {
+                                // will the client accept this type?
+                                double qval = header.Headers.Accept.ExtensionAccepted("image", "bmp");
+
+                                // form response
+                                response.ReturnCode = 200;
+
+                                // what type of file?
+                                response.Headers.LastModified = finfo.LastWriteTimeUtc;
+
+                                if (finfo.Extension == ".bmp") response.Headers.ContentType = "image/bmp";
+                                if (finfo.Extension == ".html") response.Headers.ContentType = "text/html";
+
+                                response.Headers.ContentLength = fsize;
+                                response.Headers.CacheControl.NoCache = true;
+                                response.Response = File.ReadAllBytes(fullPath);
+
+                            } else
+                            {
+                                // form response
+                                response.ReturnCode = 501;
+                                response.Headers.ContentType = "text/html";
+                                response.Response = "<p>501 Error: File is too big to download...</p>";
+                                response.Headers.ContentLength = ((string)response.Response).Length;
+                                response.Headers.CacheControl.NoCache = true;
+                            }
+
+                            socket.Send(response.GetResponseBytes());
+                        }
+                        else if (Directory.Exists(fullPath))
+                        {
+                            // it's a directory
+                            response.ReturnCode = 501;
+                            response.Headers.ContentType = "text/html";
+                            response.Response = "<p>501 Error: Can't browse direcories yet...</p>";
+                            response.Headers.ContentLength = ((string)response.Response).Length;
+                            response.Headers.CacheControl.NoCache = true;
+
+                            socket.Send(response.GetResponseBytes());
+                        } else
+                        {
+                            response.ReturnCode = 404;
+                            response.Headers.ContentType = "text/html";
+                            response.Response = "<p>404 Error: Couldn't find " + header.RequestURI + "</p>";
+                            response.Headers.ContentLength = ((string)response.Response).Length;
+                            response.Headers.CacheControl.NoCache = true;
+
+                            socket.Send(response.GetResponseBytes());
+                        }
+                        
+
+                       
                     }
 
                 }
