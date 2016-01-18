@@ -17,6 +17,8 @@ namespace WebServer
         static private int port = 1425;
         static private int SocketTimeOut = 0;
         static private TcpListener tcpListener;
+        static private Socket socket;
+        static private ManualResetEvent connected = new ManualResetEvent(false);
 
         /// <summary>
         /// The main entry point for the application.
@@ -28,28 +30,34 @@ namespace WebServer
             //Application.SetCompatibleTextRenderingDefault(false);
             //Application.Run(new Form1());
 
-            // how many threads in pool?
-            ThreadPool.SetMaxThreads(1, 1);
-
             // set up port
             tcpListener = new TcpListener(IPAddress.Loopback, port);
             tcpListener.ExclusiveAddressUse = false;
             tcpListener.Start();
+            
 
             // start listening loop
             while (!quit)
             {
                 //TcpClient socket = tcpListener.AcceptTcpClient();
-                Socket socket = tcpListener.AcceptSocket();
-                ThreadPool.QueueUserWorkItem(ServeRequest, socket);
+                
+                tcpListener.BeginAcceptSocket(ServeRequest, tcpListener);
+                connected.WaitOne();
+                //ThreadPool.QueueUserWorkItem(ServeRequest, socket);
             }
         }
 
         // serve request
-        private static void ServeRequest(object context)
+        private static void ServeRequest(IAsyncResult ar)
         {
-            Console.WriteLine("Serving request on thread " + Thread.CurrentThread.ManagedThreadId);
-            Socket socket = (Socket)context;
+            Console.WriteLine("Starting to serve request on thread " + Thread.CurrentThread.ManagedThreadId);
+            TcpListener listener = (TcpListener)ar.AsyncState;
+            Socket socket = listener.EndAcceptSocket(ar);
+
+            // allow main thread to pass
+            connected.Set();
+            connected.Reset();
+            
             socket.ReceiveTimeout = SocketTimeOut;
             try
             {
@@ -66,6 +74,8 @@ namespace WebServer
 
                     string request = System.Text.Encoding.UTF8.GetString(buffer);
                     HttpHeader header = HTTPHeaderParser.Parse(request);
+
+                    Console.WriteLine("Serving request for " + header.RequestURI + " on thread " + Thread.CurrentThread.ManagedThreadId);
 
                     // keep alive?
                     // true by default, though might change if we decide to close it later
