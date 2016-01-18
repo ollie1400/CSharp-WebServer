@@ -8,9 +8,9 @@ namespace WebServer
 {
     public abstract class HTTPHeaderParser
     {
-        public static HTTPHeader Parse(string header)
+        public static HttpHeader Parse(string header)
         {
-            HTTPHeader ret = new HTTPHeader();
+            HttpHeader ret = new HttpHeader();
 
             // split into lines
             string[] lines = header.Split(new string[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
@@ -34,7 +34,7 @@ namespace WebServer
                 string value = parts[1].Trim();
 
                 // add into the dictionary
-                ret.HeaderFields.Add(fieldName, value);
+                //ret.HeaderFields.Add(fieldName, value);
 
                 // what is it? (case-insensitive https://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.2)
                 if (fieldName.Equals("Accept", StringComparison.InvariantCultureIgnoreCase))
@@ -101,20 +101,25 @@ namespace WebServer
         }
     }
 
-    public class HTTPHeader
+
+    /// <summary>
+    /// A class holding details of an HTTP Header
+    /// </summary>
+    public class HttpHeader
     {
-        public string Method { get; set; }
-        public string RequestURI { get; set; }
+        virtual public string Method { get; set; }
+        virtual public string RequestURI { get; set; }
         public string HTTPVersionString { get; set; }
-        public string Host { get; set; }
-        public Dictionary<string, string> HeaderFields { get; set; }
+        //public Dictionary<string, string> HeaderFields { get; set; }
+        public string NewLine { get; set; }
 
         public RequestHeaders Headers { get; set; }
 
-        public HTTPHeader()
+        public HttpHeader()
         {
-            HeaderFields = new Dictionary<string, string>();
+            //HeaderFields = new Dictionary<string, string>();
             Headers = new RequestHeaders();
+            NewLine = "\r\n";
         }
 
         public class RequestHeaders
@@ -129,14 +134,119 @@ namespace WebServer
             public string Host { get; set; }
             public string IfMatch { get; set; }
             public string UserAgent { get; set; }
-            public int? ContentLength { get; set; }
+            public long? ContentLength { get; set; }
             public CacheControlStruct CacheControl { get; set; }
             public ConnectionStruct Connection { get; set; }
+            public string ContentType { get; set; }
 
+            public RequestHeaders()
+            {
+                CacheControl = new CacheControlStruct();
+                Connection = new ConnectionStruct();
+            }
         }
 
     }
 
+
+    public class HttpResponse : HttpHeader
+    {
+        public int ReturnCode { get; set; }
+        public string Response { get; set; }
+
+        /// <summary>
+        /// Add an extra NewLine string at the end of the returned response header string (or byte array).  False by default.  ONLY added if Response == null
+        /// </summary>
+        public bool AddExtraNewLine { get; set; }
+
+        public HttpResponse ()
+        {
+            HTTPVersionString = "HTTP/1.1";
+            ReturnCode = 200;
+            AddExtraNewLine = false;
+        }
+
+        /// <summary>
+        /// Make the response string
+        /// </summary>
+        /// <returns></returns>
+        public override string ToString()
+        {
+            string ret = "";
+            ret += HTTPVersionString + " " + ReturnCode + NewLine;
+            if (Headers.ContentType != null)
+            {
+                ret += "Content-Type: " + Headers.ContentType + NewLine;
+            }
+            if (Headers.ContentLength != null)
+            {
+                ret += "Content-Length: " + Headers.ContentLength.Value + NewLine;
+            }
+            if (Headers.Connection != null)
+            {
+                if (Headers.Connection.Close != null || Headers.Connection.KeepAlive != null)
+                {
+                    ListMaker connectionList = new ListMaker();
+                    if (Headers.Connection.Close ?? false) connectionList.Add("close");
+                    if (Headers.Connection.KeepAlive ?? false) connectionList.Add("keep-alive");
+                    if (connectionList.Count > 0)
+                    {
+                        ret += "Connection: " + connectionList.MakeList() + NewLine;
+                    }
+                }
+            }
+            if (Headers.CacheControl != null)
+            {
+                string cacheControlString = Headers.CacheControl.ToString();
+                if (cacheControlString.Length > 0) ret += "Cache-Control: " + cacheControlString + NewLine;
+            }
+            ret += "Date: " + DateTime.Now.ToString("R") +NewLine;
+
+            if (!String.IsNullOrEmpty(Response))
+            {
+                ret += NewLine + Response;
+            } else if (AddExtraNewLine)
+            {
+                ret += NewLine;
+            }
+
+            return ret;
+
+        }
+
+        public byte[] GetResponseBytes()
+        {
+            return Encoding.UTF8.GetBytes(ToString());
+        }
+    }
+
+    /// <summary>
+    /// Simple helper class that takes a list of Elements and 
+    /// </summary>
+    public class ListMaker : List<string>
+    {
+        public string Separator = ", ";
+        public ListMaker()
+        {
+        }
+        public string MakeList()
+        {
+            if (Count == 0) return "";
+            StringBuilder ret = new StringBuilder();
+            ret.Append(this[0]);
+            if (Count > 1)
+            {
+                ret.Append(Separator);
+                for (int i=1; i<Count-1; i++)
+                {
+                    ret.Append(this[i]);
+                    ret.Append(Separator);                   
+                }
+                ret.Append(this[Count-1]);
+            }
+            return ret.ToString();
+        }
+    }
 
     public abstract class CacheControlParser
     {
@@ -189,7 +299,7 @@ namespace WebServer
         }
     }
 
-    public struct CacheControlStruct
+    public class CacheControlStruct
     {
         public bool? NoCache { get; set; }
         public bool? NoStore { get; set; }
@@ -199,6 +309,28 @@ namespace WebServer
         public int? MinFresh { get; set; }
         public bool? NoTransform { get; set; }
         public bool? OnlyIfCached { get; set; }
+
+        public override string ToString()
+        {
+            string ret = "";
+
+            ListMaker list = new ListMaker();
+            if (NoCache ?? false) list.Add("no-cache");
+            if (NoStore ?? false) list.Add("no-store");
+            if (MaxAge != null) list.Add("max-age="+MaxAge);
+            if (NoStore ?? false) list.Add("no-store");
+            if (MaxStaleAccept ?? false)
+            {
+                list.Add("max-stale-accept");
+                if (MaxStaleValue != null) list.Add("=" + MaxStaleValue.Value);
+            }
+            if (MinFresh != null) list.Add("min-fresh=" + MinFresh);
+            if (NoTransform ?? false) list.Add("no-transform");
+            if (OnlyIfCached ?? false) list.Add("only-if-cached");
+
+            ret = list.MakeList();
+            return ret;
+        }
     }
 
     public abstract class ConnectionParser
@@ -229,8 +361,9 @@ namespace WebServer
     }
 
 
-    public struct ConnectionStruct
+    public class ConnectionStruct
     {
         public bool? KeepAlive { get; set; }
+        public bool? Close { get; set; }
     }
 }

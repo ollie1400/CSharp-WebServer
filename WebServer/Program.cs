@@ -15,6 +15,7 @@ namespace WebServer
     {
         static private bool quit = false;
         static private int port = 1425;
+        static private int SocketTimeOut = 0;
         static private TcpListener tcpListener;
 
         /// <summary>
@@ -28,7 +29,7 @@ namespace WebServer
             //Application.Run(new Form1());
 
             // how many threads in pool?
-            ThreadPool.SetMinThreads(3, 3);
+            ThreadPool.SetMaxThreads(1, 1);
 
             // set up port
             tcpListener = new TcpListener(IPAddress.Loopback, port);
@@ -47,90 +48,96 @@ namespace WebServer
         // serve request
         private static void ServeRequest(object context)
         {
+            Console.WriteLine("Serving request on thread " + Thread.CurrentThread.ManagedThreadId);
             Socket socket = (Socket)context;
-            //TcpClient socket = (TcpClient)context;
-
+            socket.ReceiveTimeout = SocketTimeOut;
             try
             {
 
-                //using (Stream inputStream = new BufferedStream(socket.GetStream()))
-                //using (StreamWriter outputStream = new StreamWriter(new BufferedStream(socket.GetStream())))
-                //{
+                byte[] buffer = new byte[1024];
+                //inputStream.Read(buffer, 0, buffer.Length);
 
-                    byte[] buffer = new byte[1024];
+                // keep reading whilst kept alive
+                bool keepAlive = true;
+                while (socket.Connected && keepAlive)
+                {
                     //inputStream.Read(buffer, 0, buffer.Length);
+                    socket.Receive(buffer);
 
-                    // keep reading whilst kept alive
-                    bool keepAlive = true;
-                    while (socket.Connected)
+                    string request = System.Text.Encoding.UTF8.GetString(buffer);
+                    HttpHeader header = HTTPHeaderParser.Parse(request);
+
+                    // keep alive?
+                    // true by default, though might change if we decide to close it later
+                    keepAlive = header.Headers.Connection.KeepAlive ?? true;
+
+                    // asked for what?
+                    if (header.RequestURI == "/")
                     {
-                        //inputStream.Read(buffer, 0, buffer.Length);
-                        socket.Receive(buffer);
+                        // form response
+                        string responseBody = @"<!DOCTYPE html>
+                        <html><body>Hello Chrome!! The time is {0}
+                        </br>
+                        <img src=""image.jpg"">
+                        </body></html>";
+                        responseBody = String.Format(responseBody, DateTime.Now.ToLongTimeString());
 
-                        string request = System.Text.Encoding.UTF8.GetString(buffer);
-                        HTTPHeader header = HTTPHeaderParser.Parse(request);
+                        // form response
+                        HttpResponse response = new HttpResponse();
+                        response.ReturnCode = 200;
+                        response.Headers.ContentType = "text/html";
+                        response.Headers.ContentLength = responseBody.Length;
+                        response.Headers.CacheControl.NoCache = true;
+                        response.Headers.CacheControl.MaxAge = 0;
+                        response.Response = responseBody;
 
-                        // asked for what?
-                        if (header.RequestURI == "/")
-                        {
-                            // form response
-                            string responseBody = @"<!DOCTYPE html>
-                <html><body>Hello Chrome!! The time is {0}
-                </br>
-                <img src=""image.jpg"">
-            </body></html>";
-                            responseBody = String.Format(responseBody, DateTime.Now.ToShortTimeString());
+                        //response.Headers.Connection.Close = true;
+                        //keepAlive = false;
 
-                            string responseString = "HTTP/1.1 200 OK\r\n";
-                            responseString += "Content-Type: text/html\r\n";
-                            responseString += "Content-Length: " + responseBody.Length.ToString() + "\r\n";
-                            responseString += "Date: " + DateTime.Now.ToString("R") + "\r\n";
-                            responseString += "\r\n";
-                            responseString += responseBody;
-
-                            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
-                            socket.Send(responseBytes);
-                            //outputStream.WriteLine(responseString);
-                            //outputStream.Flush();
-
-                        }
-                        else if (header.RequestURI == "/image.jpg")
-                        {
-                            FileInfo finfo = new FileInfo("image.jpg");
-                            FileStream fstream = finfo.OpenRead();
-                            long fsize = finfo.Length;
-
-                            string responseString = "HTTP/1.1 200 OK\r\n";
-                            responseString += "Content-Type: image/jpeg\r\n";
-                            responseString += "Content-Length: " + fsize + "\r\n";
-                            responseString += "Date: " + DateTime.Now.ToString("R") + "\r\n";
-                            responseString += "\r\n";
-
-                            //outputStream.WriteLine(responseString);
-                            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
-                            socket.Send(responseBytes);
-                            socket.SendFile("image.jpg");
-                        }
-                        else
-                        {
-                            string responseString = "HTTP/1.1 404 Not Found";
-                            responseString += "\r\n\r\n";
-                            responseString += "404 Error: Couldn't find " + header.RequestURI;
-                            byte[] responseBytes = System.Text.Encoding.UTF8.GetBytes(responseString);
-                            socket.Send(responseBytes);
-                        }
-
-                        // keep alive?
-                        // true by default 
-                        keepAlive = header.Headers.Connection.KeepAlive ?? true;
+                        byte[] responseBytes = response.GetResponseBytes();
+                        socket.Send(responseBytes);
 
                     }
+                    else if (header.RequestURI == "/image.jpg")
+                    {
+                        FileInfo finfo = new FileInfo("image.jpg");
+                        FileStream fstream = finfo.OpenRead();
+                        long fsize = finfo.Length;
+
+                        // form response
+                        HttpResponse response = new HttpResponse();
+                        response.ReturnCode = 200;
+                        response.Headers.ContentType = "image/jpeg";
+                        response.Headers.ContentLength = fsize;
+                        response.Headers.CacheControl.NoCache = true;
+                        response.Response = null;
+                        response.AddExtraNewLine = true;
+                             
+                        
+                        socket.Send(response.GetResponseBytes());
+                        socket.SendFile("image.jpg");
+                    }
+                    else
+                    {
+                        HttpResponse response = new HttpResponse();
+                        response.ReturnCode = 404;
+                        response.Headers.ContentType = "text/html";
+                        response.Response = "<p>404 Error: Couldn't find " + header.RequestURI + "</p>";
+                        response.Headers.ContentLength = response.Response.Length;
+                        response.Headers.CacheControl.NoCache = true;
+
+                        socket.Send(response.GetResponseBytes());
+                    }
+
+                }
 
                 socket.Close();
 
             }
             catch (Exception ex)
             { }
+
+            Console.WriteLine("Thread " + Thread.CurrentThread.ManagedThreadId + " closing");
         }
     }
 }
