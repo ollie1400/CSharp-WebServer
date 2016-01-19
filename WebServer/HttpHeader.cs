@@ -7,21 +7,21 @@ using System.Threading.Tasks;
 namespace WebServer
 {
     /// <summary>
-    /// A class holding details of an HTTP Header
+    /// A class holding details of an HTTP Header (contains fields for request AND response)
     /// </summary>
     public class HttpHeader
     {
         virtual public string Method { get; set; }
         virtual public string RequestURI { get; set; }
         public string HTTPVersionString { get; set; }
-        //public Dictionary<string, string> HeaderFields { get; set; }
+        public Dictionary<string, string> CustomFields { get; set; }
         public string NewLine { get; set; }
 
         public HttpHeaders Headers { get; set; }
 
         public HttpHeader()
         {
-            //HeaderFields = new Dictionary<string, string>();
+            CustomFields = new Dictionary<string, string>();
             Headers = new HttpHeaders();
             NewLine = "\r\n";
         }
@@ -136,6 +136,9 @@ namespace WebServer
                 else if (StrComp(fieldName, "Content-Length"))
                 {
                     ret.Headers.ContentLength = int.Parse(value);
+                } else
+                {
+                    ret.CustomFields[fieldName] = value;
                 }
             }
 
@@ -146,6 +149,60 @@ namespace WebServer
         private static bool StrComp(string one, string two)
         {
             return one.Equals(two, StringComparison.InvariantCultureIgnoreCase);
+        }
+
+
+
+        /// <summary>
+        /// Make the response string
+        /// </summary>
+        /// <returns></returns>
+        public override string ToString()
+        {
+            string ret = "";
+            if (Headers.ContentType != null)
+            {
+                ret += "Content-Type: " + Headers.ContentType + NewLine;
+            }
+            if (Headers.ContentLength != null)
+            {
+                ret += "Content-Length: " + Headers.ContentLength.Value + NewLine;
+            }
+            if (Headers.Connection != null)
+            {
+                if (Headers.Connection != null)
+                {
+                    List<string> bits = new List<string>();
+                    if (Headers.Connection.Close) bits.Add("close");
+                    if (Headers.Connection.KeepAlive) bits.Add("keep-alive");
+                    if (bits.Count > 0)
+                    {
+                        ret += "Connection: " + string.Join(",", bits) + NewLine;
+                    }
+                }
+            }
+            if (Headers.CacheControl != null)
+            {
+                string cacheControlString = Headers.CacheControl.ToString();
+                if (cacheControlString.Length > 0) ret += "Cache-Control: " + cacheControlString + NewLine;
+            }
+            ret += "Date: " + DateTime.Now.ToString("R") + NewLine;
+            if (Headers.LastModified != null)
+            {
+                ret += "Last-Modified: " + Headers.LastModified.Value.ToString("R") + NewLine;
+            }
+
+            // custom fields
+            if (CustomFields != null && CustomFields.Keys.Count > 0)
+            {
+                foreach (KeyValuePair<string, string> e in CustomFields.ToList())
+                {
+                    ret += e.Key + ": " + e.Value;
+                }
+            }
+
+            return ret;
+
         }
     }
 }

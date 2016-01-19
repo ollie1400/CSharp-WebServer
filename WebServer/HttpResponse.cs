@@ -33,37 +33,9 @@ namespace WebServer
         {
             string ret = "";
             ret += Header.HTTPVersionString + " " + ReturnCode + Header.NewLine;
-            if (Header.Headers.ContentType != null)
-            {
-                ret += "Content-Type: " + Header.Headers.ContentType + Header.NewLine;
-            }
-            if (Header.Headers.ContentLength != null)
-            {
-                ret += "Content-Length: " + Header.Headers.ContentLength.Value + Header.NewLine;
-            }
-            if (Header.Headers.Connection != null)
-            {
-                if (Header.Headers.Connection != null)
-                {
-                    List<string> bits = new List<string>();
-                    if (Header.Headers.Connection.Close) bits.Add("close");
-                    if (Header.Headers.Connection.KeepAlive) bits.Add("keep-alive");
-                    if (bits.Count > 0)
-                    {
-                        ret += "Connection: " + string.Join(",", bits) + Header.NewLine;
-                    }
-                }
-            }
-            if (Header.Headers.CacheControl != null)
-            {
-                string cacheControlString = Header.Headers.CacheControl.ToString();
-                if (cacheControlString.Length > 0) ret += "Cache-Control: " + cacheControlString + Header.NewLine;
-            }
-            ret += "Date: " + DateTime.Now.ToString("R") + Header.NewLine;
-            if (Header.Headers.LastModified != null)
-            {
-                ret += "Last-Modified: " + Header.Headers.LastModified.Value.ToString("R") + Header.NewLine;
-            }
+            
+            // if we need to set anything in the header, do it before this.
+            ret += Header.ToString();
 
             // what is the response?
             // if it's a string, add the new line separator and put it in now

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace WebServer
 {
     /// <summary>
-    /// An object representing an Http Accept header request
+    /// An object representing an Http Accept header request (e.g. Accept: text/html,text/json;q=0.5)
     /// </summary>
     public class HttpAcceptHeader
     {
