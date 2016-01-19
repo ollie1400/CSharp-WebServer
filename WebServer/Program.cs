@@ -72,13 +72,13 @@ namespace WebServer
                     socket.Receive(buffer);
 
                     string request = System.Text.Encoding.UTF8.GetString(buffer);
-                    HttpHeader header = HTTPHeaderParser.Parse(request);
+                    HttpHeader header = HttpHeader.Parse(request);
 
                     Console.WriteLine("Serving request for " + header.RequestURI + " on thread " + Thread.CurrentThread.ManagedThreadId);
 
                     // keep alive?
                     // true by default, though might change if we decide to close it later
-                    keepAlive = header.Headers.Connection.KeepAlive ?? true;
+                    keepAlive = header.Headers.Connection != null ? header.Headers.Connection.KeepAlive : true;
 
                     // asked for what?
                     if (header.RequestURI == "/")
@@ -94,10 +94,10 @@ namespace WebServer
                         // form response
                         HttpResponse response = new HttpResponse();
                         response.ReturnCode = 200;
-                        response.Headers.ContentType = "text/html";
-                        response.Headers.ContentLength = responseBody.Length;
-                        response.Headers.CacheControl.NoCache = true;
-                        response.Headers.CacheControl.MaxAge = 0;
+                        response.Header.Headers.ContentType = "text/html";
+                        response.Header.Headers.ContentLength = responseBody.Length;
+                        response.Header.Headers.CacheControl.NoCache = true;
+                        response.Header.Headers.CacheControl.MaxAge = 0;
                         response.Response = responseBody;
 
                         //response.Headers.Connection.Close = true;
@@ -124,34 +124,34 @@ namespace WebServer
                             FileInfo finfo = new FileInfo(fullPath);
                             FileStream fstream = finfo.OpenRead();
                             long fsize = finfo.Length;
+                            string fname = finfo.Name;
+                            string extension = finfo.Extension.Length > 1 ? finfo.Extension.Substring(1) : "";   // remove preceding "." from extension
+                            string mime = MimeMapping.GetMimeMapping(fname);
 
                             // is file size ok?
                             if (fsize <= MAX_FILE_SIZE)
                             {
                                 // will the client accept this type?
-                                double qval = header.Headers.Accept.ExtensionAccepted("image", "bmp");
+                                double qval = header.Headers.Accept.ExtensionAccepted(extension);
 
                                 // form response
                                 response.ReturnCode = 200;
 
                                 // what type of file?
-                                response.Headers.LastModified = finfo.LastWriteTimeUtc;
-
-                                if (finfo.Extension == ".bmp") response.Headers.ContentType = "image/bmp";
-                                if (finfo.Extension == ".html") response.Headers.ContentType = "text/html";
-
-                                response.Headers.ContentLength = fsize;
-                                response.Headers.CacheControl.NoCache = true;
+                                response.Header.Headers.LastModified = finfo.LastWriteTimeUtc;
+                                response.Header.Headers.ContentType = mime;
+                                response.Header.Headers.ContentLength = fsize;
+                                response.Header.Headers.CacheControl.NoCache = true;
                                 response.Response = File.ReadAllBytes(fullPath);
 
                             } else
                             {
                                 // form response
                                 response.ReturnCode = 501;
-                                response.Headers.ContentType = "text/html";
+                                response.Header.Headers.ContentType = "text/html";
                                 response.Response = "<p>501 Error: File is too big to download...</p>";
-                                response.Headers.ContentLength = ((string)response.Response).Length;
-                                response.Headers.CacheControl.NoCache = true;
+                                response.Header.Headers.ContentLength = ((string)response.Response).Length;
+                                response.Header.Headers.CacheControl.NoCache = true;
                             }
 
                             socket.Send(response.GetResponseBytes());
@@ -160,19 +160,19 @@ namespace WebServer
                         {
                             // it's a directory
                             response.ReturnCode = 501;
-                            response.Headers.ContentType = "text/html";
+                            response.Header.Headers.ContentType = "text/html";
                             response.Response = "<p>501 Error: Can't browse direcories yet...</p>";
-                            response.Headers.ContentLength = ((string)response.Response).Length;
-                            response.Headers.CacheControl.NoCache = true;
+                            response.Header.Headers.ContentLength = ((string)response.Response).Length;
+                            response.Header.Headers.CacheControl.NoCache = true;
 
                             socket.Send(response.GetResponseBytes());
                         } else
                         {
                             response.ReturnCode = 404;
-                            response.Headers.ContentType = "text/html";
+                            response.Header.Headers.ContentType = "text/html";
                             response.Response = "<p>404 Error: Couldn't find " + header.RequestURI + "</p>";
-                            response.Headers.ContentLength = ((string)response.Response).Length;
-                            response.Headers.CacheControl.NoCache = true;
+                            response.Header.Headers.ContentLength = ((string)response.Response).Length;
+                            response.Header.Headers.CacheControl.NoCache = true;
 
                             socket.Send(response.GetResponseBytes());
                         }
